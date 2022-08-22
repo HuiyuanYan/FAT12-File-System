@@ -37,7 +37,7 @@ void findFatherPath(char *path, char *fatherPath)
 }
 
 //打印文件目录项的详细信息
-void PrintDir(File_Descriptor *fd)
+void PrintDir(FileDescriptor *fd)
 {
     if (fd->DIR_Attr == REGULAR_TYPE)
         printf("\033[1;32m%s\033[0m\t", (char *)fd->DIR_Name);
@@ -103,7 +103,7 @@ int HandleLs(char cmd[][30], int argc)
     char tmpPath[256] = {0};
     strcpy(tmpPath, shellPath);
     strcat(tmpPath, filePath);
-    File_Descriptor fp;
+    FileDescriptor fp;
     if (ReadFp(tmpPath, &fp) == -1)
         return -1;
     if (fp.DIR_Attr == REGULAR_TYPE)
@@ -111,13 +111,13 @@ int HandleLs(char cmd[][30], int argc)
     int bufSz = ((fp.DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
     char *buf = (char *)calloc(bufSz, sizeof(char));
     ReadData(&fp, buf);
-    File_Descriptor *tmpFp;
+    FileDescriptor *tmpFp;
     int listJudge;          //用于判断某文件是否需要列出
     char tmpName[11] = {0}; //用于输出文件名字
-    for (int i = 0; i < bufSz; i += sizeof(File_Descriptor))
+    for (int i = 0; i < bufSz; i += sizeof(FileDescriptor))
     {
         listJudge = 1;
-        tmpFp = (File_Descriptor *)(buf + i);
+        tmpFp = (FileDescriptor *)(buf + i);
         if (tmpFp->DIR_Name[0] != 0)
         {
             if (strcmp((char *)tmpFp->DIR_Name, ".") == 0 || strcmp((char *)tmpFp->DIR_Name, "..") == 0)
@@ -173,7 +173,7 @@ int HandleCd(char *path)
     char tmpPath[256] = {0};
     strcpy(tmpPath, shellPath);
     strcat(tmpPath, path);
-    File_Descriptor fp;
+    FileDescriptor fp;
     if (ReadFp(tmpPath, &fp) == -1)
         return -1;
     if (fp.DIR_Attr != DIRECTORY_TYPE)
@@ -191,7 +191,7 @@ int HandleCat(char *path)
     char tmpPath[256];
     strcpy(tmpPath, shellPath);
     strcat(tmpPath, path);
-    File_Descriptor fp;
+    FileDescriptor fp;
 
     if (ReadFp(tmpPath, &fp) == -1)
     {
@@ -240,7 +240,7 @@ int HandleMkdir(char *fileName)
         return 0;
     if (ret == -2)
     {
-        printf("directory \"%s\" already exists\n");
+        printf("directory \"%s\" already exists\n", fileName);
         return -1;
     }
 }
@@ -278,16 +278,16 @@ int HandleTouch(char *fileName)
     }
 
     //检查是否文件已经创建
-    File_Descriptor fatherFp;
+    FileDescriptor fatherFp;
     ReadFp(shellPath, &fatherFp);
     int bufSz = ((fatherFp.DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
     char *buf = (char *)calloc(bufSz, sizeof(char));
     ReadData(&fatherFp, buf);
-    File_Descriptor *tmpFp;
+    FileDescriptor *tmpFp;
     char tmpName[20] = {0};
-    for (int i = 0; i < bufSz; i += sizeof(File_Descriptor))
+    for (int i = 0; i < bufSz; i += sizeof(FileDescriptor))
     {
-        tmpFp = (File_Descriptor *)(buf + i);
+        tmpFp = (FileDescriptor *)(buf + i);
         if (tmpFp->DIR_Name[0] != 0)
         {
             if (tmpFp->DIR_Attr == DIRECTORY_TYPE)
@@ -303,6 +303,7 @@ int HandleTouch(char *fileName)
                 if (strcmp(fileName, tmpName) == 0)
                 {
                     //说明已经有了该常规文件，那么修改它的时间并写回即可
+                    printf("TOUCH FILENAME=%s\n", fileName);
                     SetTime(tmpFp);
                     WriteData(buf, bufSz, &fatherFp);
                     return 0;
@@ -323,7 +324,6 @@ int HandleTouch(char *fileName)
         char realName[8] = {0};
         strncpy(realName, fileName, nameSz - strlen(Type));
         strncpy(fileType, Type + 1, strlen(Type) - 1);
-        printf("realName=%s\n", realName);
         CreateFile(shellPath, realName, fileType, REGULAR_TYPE, 0);
     }
     return 0;
@@ -361,16 +361,16 @@ int HandleRm(char *fileName)
     }
 
     //检查是否文件已经创建
-    File_Descriptor fatherFp;
+    FileDescriptor fatherFp;
     ReadFp(shellPath, &fatherFp);
     int bufSz = ((fatherFp.DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
     char *buf = (char *)calloc(bufSz, sizeof(char));
     ReadData(&fatherFp, buf);
-    File_Descriptor *tmpFp;
+    FileDescriptor *tmpFp;
     char tmpName[20] = {0};
-    for (int i = 0; i < bufSz; i += sizeof(File_Descriptor))
+    for (int i = 0; i < bufSz; i += sizeof(FileDescriptor))
     {
-        tmpFp = (File_Descriptor *)(buf + i);
+        tmpFp = (FileDescriptor *)(buf + i);
         if (tmpFp->DIR_Name[0] != 0)
         {
             strcpy(tmpName, (char *)tmpFp->DIR_Name);
@@ -430,16 +430,16 @@ int HandleRmDir(char *fileName)
     }
 
     //检查是否文件已经创建
-    File_Descriptor fatherFp;
+    FileDescriptor fatherFp;
     ReadFp(shellPath, &fatherFp);
     int bufSz = ((fatherFp.DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
     char *buf = (char *)calloc(bufSz, sizeof(char));
     ReadData(&fatherFp, buf);
-    File_Descriptor *tmpFp;
+    FileDescriptor *tmpFp;
     char tmpName[20] = {0};
-    for (int i = 0; i < bufSz; i += sizeof(File_Descriptor))
+    for (int i = 0; i < bufSz; i += sizeof(FileDescriptor))
     {
-        tmpFp = (File_Descriptor *)(buf + i);
+        tmpFp = (FileDescriptor *)(buf + i);
         if (tmpFp->DIR_Name[0] != 0)
         {
             strcpy(tmpName, (char *)tmpFp->DIR_Name);
@@ -500,7 +500,7 @@ int HandleCopy(char *srcFile, char *destFile)
     fread(buf, sizeof(char), srcFileSz, srcFp);     //开始读取整个文件
     fclose(srcFp);
     //将内容写入FAT12的目标文件中
-    File_Descriptor dstFp;
+    FileDescriptor dstFp;
     char fullPath[20] = {0};
     strcpy(fullPath, shellPath);
     strcat(fullPath, destFile);
@@ -520,7 +520,6 @@ int HandleCopy(char *srcFile, char *destFile)
             char realName[8] = {0};
             strncpy(realName, destFile, nameSz - strlen(Type));
             strncpy(fileType, Type + 1, strlen(Type) - 1);
-            printf("realName=%s\n", realName);
             CreateFile(shellPath, realName, fileType, REGULAR_TYPE, srcFileSz);
         }
 
@@ -560,7 +559,7 @@ int HandleLoad(char *filePath)
         return -1;
     }
 
-    FILE *inFile = nullptr;
+    FILE *inFile = NULL;
     if (!(inFile = fopen(filePath, "rb")))
     {
         printf("No such file or directory.\n");
@@ -569,7 +568,7 @@ int HandleLoad(char *filePath)
 
     fread(&disk, sizeof(disk), 1, inFile);
     fclose(inFile);
-    printf("FAT12 contents have been successfully loaded from file '%s'\n.", filePath);
+    printf("FAT12 contents have been successfully loaded from file '%s'.\n", filePath);
 }
 
 //魔改命令，save用于将disk内容保存到当前文件夹的filePath之中
@@ -597,7 +596,7 @@ int HandleSave(char *filePath)
     }
 
     //打开（如果没有则新创建）该文件
-    FILE *outFile = nullptr;
+    FILE *outFile = NULL;
     if (!(outFile = fopen(filePath, "wb")))
     {
         return -1;
@@ -696,7 +695,8 @@ void ExecShell()
         else
         {
             printf("%s: command not found.\n"
-                   "Type \'help\' for help.\n");
+                   "Type \'help\' for help.\n",
+                   cmd[0]);
         }
     }
 }

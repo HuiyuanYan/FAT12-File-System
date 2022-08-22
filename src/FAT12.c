@@ -1,7 +1,7 @@
 #include "FAT12.h"
-#include <iostream>
-using namespace std;
 Disk disk;
+
+//初始化MBR首部
 void InitMBR()
 {
     memset(disk.MBR.BS_jmpBOOT, 3, 0);     //跳转指令，这里不需要就设置为0
@@ -29,6 +29,7 @@ void InitMBR()
     disk.MBR.end_point[1] = 0xAA;
 }
 
+//初始化所有FAT表项
 void InitFAT()
 {
     memset(disk.FAT1, 0x00, sizeof(disk.FAT1));
@@ -38,15 +39,16 @@ void InitFAT()
     disk.FAT2[0].firstEntry = 0xFF0;
 }
 
-void MakeDirEntry(File_Descriptor *dirEntry, char dirName[8], char dirType[3], uint8_t dirAttr, uint32_t fileSz)
+//根据给定的参数，填写一个文件描述符
+void MakeFp(FileDescriptor *fp, char dirName[8], char dirType[3], uint8_t dirAttr, uint32_t fileSz)
 {
-    //根据给定参数填写dirEntry
-    memcpy(dirEntry->DIR_Name, dirName, 8);
-    memcpy(dirEntry->DIR_Type, dirType, 3);
-    dirEntry->DIR_Attr = dirAttr;
-    memset(dirEntry->Reserved, 0, 10);
-    SetTime(dirEntry);
-    dirEntry->DIR_FileSize = fileSz;
+    //根据给定参数填写Fp
+    memcpy(fp->DIR_Name, dirName, 8);
+    memcpy(fp->DIR_Type, dirType, 3);
+    fp->DIR_Attr = dirAttr;
+    memset(fp->Reserved, 0, 10);
+    SetTime(fp);
+    fp->DIR_FileSize = fileSz;
     int firstClus = AllocSector(fileSz);
     if (firstClus == -1)
     {
@@ -54,11 +56,12 @@ void MakeDirEntry(File_Descriptor *dirEntry, char dirName[8], char dirType[3], u
     }
     else
     {
-        dirEntry->DIR_FstClus = firstClus;
+        fp->DIR_FstClus = firstClus;
     }
 }
 
-void SetTime(File_Descriptor *dirEntry)
+//获取当前时间并按照规则填写到文件描述符中
+void SetTime(FileDescriptor *fp)
 {
     //获取时间
     time_t tmpcal_t;
@@ -66,8 +69,8 @@ void SetTime(File_Descriptor *dirEntry)
     time(&tmpcal_t);
     tmp_ptr = localtime(&tmpcal_t);
     //修改当前目录和新文件的写入时间
-    dirEntry->WrtDate = ((tmp_ptr->tm_year - 80) << 9) | ((tmp_ptr->tm_mon + 1) << 5) | (tmp_ptr->tm_mday);
-    dirEntry->WrtTime = (tmp_ptr->tm_hour << 11) | (tmp_ptr->tm_min << 5) | (0b00000);
+    fp->WrtDate = ((tmp_ptr->tm_year - 80) << 9) | ((tmp_ptr->tm_mon + 1) << 5) | (tmp_ptr->tm_mday);
+    fp->WrtTime = (tmp_ptr->tm_hour << 11) | (tmp_ptr->tm_min << 5) | (0b00000);
 }
 
 //申请能容纳sz大小的空间（512的整数倍），成功返回申请到的首簇号，失败返回-1
@@ -104,12 +107,6 @@ int AllocSector(uint32_t sz)
             i++;
         }
     }
-    /*for (int i = 0; i < secNum; i++)
-    {
-        cout << "secRecord" << endl;
-
-        cout << secRecord[i] << endl;
-    }*/
     if (judge == false)
     {
         printf("磁盘空间不足！");
@@ -152,22 +149,25 @@ int AllocSector(uint32_t sz)
             WriteSector(emptyBuf, secRecord[i]);
         }
     }
-    return secRecord[0];
+    int ret = secRecord[0];
+    free(secRecord);
+    return ret;
 }
 
+//创建一个名为dictName的根目录项
 int CreatRootDict(char *dictName)
 {
-    File_Descriptor fp;
+    FileDescriptor fp;
     memset(&fp, 0, sizeof(fp));
     char fileType[3] = "";
-    MakeDirEntry(&fp, dictName, fileType, DIRECTORY_TYPE, 512);
+    MakeFp(&fp, dictName, fileType, DIRECTORY_TYPE, 512);
     //创建根目录项，成功返回0，失败返回-1
     for (int i = 0; i < ROOT_DICT_NUM; i++)
     {
         if (disk.rootDirectory[i].DIR_Name[0] == 0)
         {
-            memcpy(&disk.rootDirectory[i], &fp, sizeof(File_Descriptor));
-            File_Descriptor dotFp, ddotFp;
+            memcpy(&disk.rootDirectory[i], &fp, sizeof(FileDescriptor));
+            FileDescriptor dotFp, ddotFp;
             CreateDotDict(&dotFp, &fp);
             CreateDDotDict(&ddotFp, 0);
 
@@ -181,20 +181,22 @@ int CreatRootDict(char *dictName)
     return -1;
 }
 
-void CreateDotDict(File_Descriptor *dotFp, const File_Descriptor *fp)
+//创建"."目录项
+void CreateDotDict(FileDescriptor *dotFp, const FileDescriptor *fp)
 {
     //为文件目录项创建相应的dot目录项，指向文件本身
-    memcpy(dotFp, fp, sizeof(File_Descriptor));
+    memcpy(dotFp, fp, sizeof(FileDescriptor));
     char dotName[8] = "."; // dot目录和文件目录仅名字不一样
     memcpy(dotFp->DIR_Name, dotName, sizeof(dotFp->DIR_Name));
     dotFp->DIR_FileSize = 0; //除此之外可以把它的size设置为0
 }
 
-void CreateDDotDict(File_Descriptor *ddotFp, int fatherClus)
+//创建".."目录项
+void CreateDDotDict(FileDescriptor *ddotFp, int fatherClus)
 {
     char ddotName[8] = "..";
     char ddotType[3] = "";
-    MakeDirEntry(ddotFp, ddotName, ddotType, DIRECTORY_TYPE, 0);
+    MakeFp(ddotFp, ddotName, ddotType, DIRECTORY_TYPE, 0);
     ddotFp->DIR_FstClus = fatherClus; // ddot的FstClus字段为父目录FstClus，若父目录为根目录，则设置为0
 }
 
@@ -203,12 +205,12 @@ void CreateDDotDict(File_Descriptor *ddotFp, int fatherClus)
 // path：目录路径
 // fp：找到的文件描述符
 //返回值：
-int ReadFp(char *path, File_Descriptor *fp)
+int ReadFp(char *path, FileDescriptor *fp)
 {
     //根据路径读取对应的文件描述符
 
     // step1：先读取根目录的内容
-    File_Descriptor tmpFp;
+    FileDescriptor tmpFp;
     ReadRootDict("/", &tmpFp);
     int tmpBufSz = ((tmpFp.DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
     char *tmpBuf = (char *)calloc(tmpBufSz, sizeof(char));
@@ -232,7 +234,6 @@ int ReadFp(char *path, File_Descriptor *fp)
         }
         if (isEmpty == true)
             break;
-        // cout << "tmp=" << tmp << endl;
 
         ret = MatchDict(tmp, tmpBuf, tmpBufSz, &tmpFp); //从对应容器中读取fp
         if (ret == -1)
@@ -261,12 +262,13 @@ int ReadFp(char *path, File_Descriptor *fp)
 
         i++;
     }
-    memcpy(fp, &tmpFp, sizeof(File_Descriptor));
+    memcpy(fp, &tmpFp, sizeof(FileDescriptor));
+    free(tmpBuf);
     return 0;
 }
 
 //根据路径修改并写回对应的文件描述符
-int WriteFp(char *path, File_Descriptor *fp)
+int WriteFp(char *path, FileDescriptor *fp)
 {
     // step0:如果path与根目录（这里是"/"相同），则直接写根目录即可
     if (strcmp("/", path) == 0)
@@ -274,8 +276,8 @@ int WriteFp(char *path, File_Descriptor *fp)
         return WriteRootDict(path, fp);
     }
     // step1：先读取根目录的内容
-    File_Descriptor tmpFp;  //用于迭代
-    File_Descriptor tmpFp2; //用于匹配
+    FileDescriptor tmpFp;  //用于迭代
+    FileDescriptor tmpFp2; //用于匹配
     ReadRootDict("/", &tmpFp);
 
     int tmpBufSz = ((tmpFp.DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
@@ -319,11 +321,12 @@ int WriteFp(char *path, File_Descriptor *fp)
         tmpBufSz = ((tmpFp2.DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
         tmpBuf = (char *)calloc(tmpBufSz, sizeof(char));
         ReadData(&tmpFp2, tmpBuf);
-        memcpy(&tmpFp, &tmpFp2, sizeof(File_Descriptor));
+        memcpy(&tmpFp, &tmpFp2, sizeof(FileDescriptor));
         i++;
     }
-    memcpy(tmpBuf + ret, fp, sizeof(File_Descriptor));
+    memcpy(tmpBuf + ret, fp, sizeof(FileDescriptor));
     WriteData(tmpBuf, tmpBufSz, &tmpFp);
+    free(tmpBuf);
     return 0;
 }
 
@@ -332,21 +335,21 @@ int WriteFp(char *path, File_Descriptor *fp)
 // faFp:父目录
 // fp:新目录
 // newClus:用于指示是否在填写表项的时候申请了新空间，若没有返回-1，有则返回申请的首簇号
-void WriteNewEntry(File_Descriptor *faFp, File_Descriptor *fp, int *newClus)
+void WriteNewEntry(FileDescriptor *faFp, FileDescriptor *fp, int *newClus)
 {
     //先读出faFp中的数据内容
     int bufSz = ((faFp->DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
     char *buf = (char *)calloc(bufSz, sizeof(char));
     ReadData(faFp, buf);
     //再检查buf中有没有合适的空位用于填写fp
-    File_Descriptor *tmpFp;
+    FileDescriptor *tmpFp;
     char cmpStr[32] = {0}; //用于判断tmpFp所指fp是否为全0
-    for (int i = 0; i < bufSz; i += sizeof(File_Descriptor))
+    for (int i = 0; i < bufSz; i += sizeof(FileDescriptor))
     {
-        tmpFp = (File_Descriptor *)(buf + i);
+        tmpFp = (FileDescriptor *)(buf + i);
         if (strcmp((char *)tmpFp, cmpStr) == 0)
         { //用于比较是否有“空位”
-            memcpy(tmpFp, fp, sizeof(File_Descriptor));
+            memcpy(tmpFp, fp, sizeof(FileDescriptor));
             WriteData(buf, bufSz, faFp);
             *newClus = -1;
             return;
@@ -357,7 +360,7 @@ void WriteNewEntry(File_Descriptor *faFp, File_Descriptor *fp, int *newClus)
     //另外申请一块即可
     *newClus = AllocSector(SECTOR_SIZE);
     char newBuf[SECTOR_SIZE] = {0};
-    memcpy(newBuf, fp, sizeof(File_Descriptor));
+    memcpy(newBuf, fp, sizeof(FileDescriptor));
     WriteSector(newBuf, *newClus);
 
     //修改父目录的大小和FAT表
@@ -380,6 +383,7 @@ void WriteNewEntry(File_Descriptor *faFp, File_Descriptor *fp, int *newClus)
         disk.FAT1[lastClus / 2].secondEntry = (*newClus & 0xFFF);
         disk.FAT2[lastClus / 2].secondEntry = (*newClus & 0xFFF);
     }
+    free(buf);
     return;
 }
 
@@ -388,8 +392,8 @@ void WriteNewEntry(File_Descriptor *faFp, File_Descriptor *fp, int *newClus)
 int CreateFile(char *fatherPath, char fileName[8], char fileType[3], uint8_t fileAttr, uint32_t fileSz)
 {
     // step0:找到父路径的文件描述符
-    File_Descriptor fp, fatherFp;
-    MakeDirEntry(&fp, fileName, fileType, fileAttr, fileSz);
+    FileDescriptor fp, fatherFp;
+    MakeFp(&fp, fileName, fileType, fileAttr, fileSz);
 
     if (ReadFp(fatherPath, &fatherFp) == -1)
         return -1;
@@ -401,10 +405,10 @@ int CreateFile(char *fatherPath, char fileName[8], char fileType[3], uint8_t fil
     int bufSz = ((fatherFp.DIR_FileSize + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE;
     char *buf = (char *)calloc(bufSz, sizeof(char));
     ReadData(&fatherFp, buf);
-    File_Descriptor *tmpFp;
-    for (int i = 0; i < bufSz; i += sizeof(File_Descriptor))
+    FileDescriptor *tmpFp;
+    for (int i = 0; i < bufSz; i += sizeof(FileDescriptor))
     {
-        tmpFp = (File_Descriptor *)(buf + i);
+        tmpFp = (FileDescriptor *)(buf + i);
         if (tmpFp->DIR_Name[0] != 0)
         {
 
@@ -420,7 +424,7 @@ int CreateFile(char *fatherPath, char fileName[8], char fileType[3], uint8_t fil
     int newClus;
     if (fileAttr == DIRECTORY_TYPE)
     {
-        File_Descriptor dotFp, ddotFp;
+        FileDescriptor dotFp, ddotFp;
         CreateDotDict(&dotFp, &fp);
         CreateDDotDict(&ddotFp, fp.DIR_FstClus);
         WriteNewEntry(&fp, &dotFp, &newClus);
@@ -431,25 +435,26 @@ int CreateFile(char *fatherPath, char fileName[8], char fileType[3], uint8_t fil
     // step4:设置faFp的修改时间，并将其写回
     SetTime(&fatherFp);
     WriteFp(fatherPath, &fatherFp);
-
+    free(buf);
     return 0;
 }
 
+//模拟磁盘写
 void WriteSector(char *buf, int idx)
 {
-    //模拟磁盘写
     memcpy(disk.dataSector[idx], buf, SECTOR_SIZE);
 }
+//模拟磁盘写
 void ReadSector(char *buf, int idx)
 {
-    //模拟磁盘读
     memcpy(buf, disk.dataSector[idx], SECTOR_SIZE);
 }
-void ReadData(File_Descriptor *fp, char *buf)
+
+//读取文件数据
+void ReadData(FileDescriptor *fp, char *buf)
 {
     int fstClus = fp->DIR_FstClus;
     //读取以fstClus为首簇的内容
-    // cout << "firstClus=" << fstClus << endl;
     int tmpClus = fstClus;
     int i = 0;
     do
@@ -469,7 +474,7 @@ void ReadData(File_Descriptor *fp, char *buf)
 }
 
 //将buf内容写入文件fp的数据区
-void WriteData(char *buf, int bufSz, File_Descriptor *fp)
+void WriteData(char *buf, int bufSz, FileDescriptor *fp)
 {
     int fstClus = fp->DIR_FstClus;
     // step0:如果首簇号为0，说明此时还没有为该文件分配簇
@@ -479,7 +484,6 @@ void WriteData(char *buf, int bufSz, File_Descriptor *fp)
         {
             //如果写入内容长度大于0，那么得先为该文件分配簇
             int newFstClus = AllocSector(bufSz);
-            cout << "NF=" << newFstClus << endl;
             if (newFstClus == -1)
             {
                 return;
@@ -515,7 +519,6 @@ void WriteData(char *buf, int bufSz, File_Descriptor *fp)
     if (origSz < nowSz)
     {
         //先扩容
-        printf("扩容！\n");
         int extraSz = ((bufSz + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE - origSz;
         tmpClus = AllocSector(extraSz); //额外申请空间
         // printf("tmpClus = %d\n", tmpClus);
@@ -574,16 +577,17 @@ void WriteData(char *buf, int bufSz, File_Descriptor *fp)
         tmpClus = (tmpClus % 2 == 0) ? disk.FAT1[tmpClus / 2].firstEntry : disk.FAT1[tmpClus / 2].secondEntry;
         i += SECTOR_SIZE;
     } while ((tmpClus & 0xFFF) != 0xFFF);
+    free(clusRecord);
 }
 
 //根据名字读取对应的根目录，成功返回0，失败返回-1
-int ReadRootDict(char *rootName, File_Descriptor *fp)
+int ReadRootDict(char *rootName, FileDescriptor *fp)
 {
 
     for (int i = 0; i < ROOT_DICT_NUM; i++)
     {
 
-        memcpy(fp, (void *)&disk.rootDirectory[i], sizeof(File_Descriptor));
+        memcpy(fp, (void *)&disk.rootDirectory[i], sizeof(FileDescriptor));
         if (strcmp((char *)fp->DIR_Name, rootName) == 0)
         {
             return 0;
@@ -592,13 +596,13 @@ int ReadRootDict(char *rootName, File_Descriptor *fp)
     return -1;
 }
 //根据名字写入对应的根目录，成功返回0，失败返回-1
-int WriteRootDict(char *rootName, File_Descriptor *fp)
+int WriteRootDict(char *rootName, FileDescriptor *fp)
 {
     for (int i = 0; i < ROOT_DICT_NUM; i++)
     {
         if (strcmp((char *)disk.rootDirectory[i].DIR_Name, rootName) == 0)
         {
-            memcpy((void *)&disk.rootDirectory[i], fp, sizeof(File_Descriptor));
+            memcpy((void *)&disk.rootDirectory[i], fp, sizeof(FileDescriptor));
             return 0;
         }
     }
@@ -607,15 +611,15 @@ int WriteRootDict(char *rootName, File_Descriptor *fp)
 
 //从容器中匹配相应目录，匹配成功fileType返回相应文件描述符
 //成功返回在该buf中的相对偏移量i(单位是fp的大小)，失败返回-1
-int MatchDict(char *fileName, char *buf, int bufSz, File_Descriptor *fp)
+int MatchDict(char *fileName, char *buf, int bufSz, FileDescriptor *fp)
 {
-    File_Descriptor tmpFp;
+    FileDescriptor tmpFp;
     int isMatch = -1;
     int i = 0;
     // printf("bufsz=%d\n", bufSz);
     while (i < bufSz)
     {
-        memcpy(&tmpFp, buf + i, sizeof(File_Descriptor));
+        memcpy(&tmpFp, buf + i, sizeof(FileDescriptor));
         char *fullName = (char *)calloc(8 + 3, sizeof(char)); //拼接获得文件全名
         strcpy(fullName, (char *)tmpFp.DIR_Name);
         if (tmpFp.DIR_Type[0] != 0) //如果文件类型不为空（通过第一个字节判断），还需要加上"."
@@ -626,10 +630,11 @@ int MatchDict(char *fileName, char *buf, int bufSz, File_Descriptor *fp)
         if (strcmp(fullName, fileName) == 0)
         {
             //匹配成功
-            memcpy(fp, &tmpFp, sizeof(File_Descriptor));
+            memcpy(fp, &tmpFp, sizeof(FileDescriptor));
             return i;
         }
-        i += sizeof(File_Descriptor);
+        i += sizeof(FileDescriptor);
+        free(fullName);
     }
     return -1;
 }
@@ -662,7 +667,7 @@ void ClearClus(int fstClus)
     }
 }
 //递归删除文件目录项，删除其所有子文件
-void RemoveFp(File_Descriptor *fp)
+void RemoveFp(FileDescriptor *fp)
 {
     //如果文件为空(通过名字的第一个字符判断)，直接返回
     if (fp->DIR_Name[0] == 0)
@@ -678,19 +683,20 @@ void RemoveFp(File_Descriptor *fp)
         char *buf = (char *)calloc(bufSz, sizeof(char));
         ReadData(fp, buf);
         int idx = 0;
-        File_Descriptor *tmpFp;
+        FileDescriptor *tmpFp;
         while (idx < bufSz)
         {
-            tmpFp = (File_Descriptor *)(buf + idx);
+            tmpFp = (FileDescriptor *)(buf + idx);
             if (strcmp((char *)tmpFp->DIR_Name, ".") == 0 || strcmp((char *)tmpFp->DIR_Name, "..") == 0)
             {
-                idx += sizeof(File_Descriptor);
+                idx += sizeof(FileDescriptor);
                 continue;
             }
             RemoveFp(tmpFp);
-            idx += sizeof(File_Descriptor);
+            idx += sizeof(FileDescriptor);
         }
         ClearClus(fp->DIR_FstClus);
+        free(buf);
     }
 }
 
@@ -701,7 +707,7 @@ void RemoveFp(File_Descriptor *fp)
 int RemoveFile(char *fatherPath, char *fileName)
 {
     //读取父目录的fp
-    File_Descriptor fatherFp, rmFp;
+    FileDescriptor fatherFp, rmFp;
     if (ReadFp(fatherPath, &fatherFp) == -1)
         return -1;
     if (fatherFp.DIR_Attr != DIRECTORY_TYPE)
@@ -727,20 +733,20 @@ int RemoveFile(char *fatherPath, char *fileName)
     RemoveFp(&rmFp);
 
     //再从父目录的数据中清除该子目录并写回
-    memset(buf + ret, 0, sizeof(File_Descriptor));
+    memset(buf + ret, 0, sizeof(FileDescriptor));
 
     WriteData(buf, bufSz, &fatherFp);
+    free(buf);
     return 0;
 }
 //进一步的封装，读取文件内容
 int ReadFile(char *path, char *buf)
 {
-    File_Descriptor fp;
+    FileDescriptor fp;
     if (ReadFp(path, &fp) == -1)
     {
         return -1;
     }
-    cout << "RDIRNAME=" << fp.DIR_Name << endl;
     ReadData(&fp, buf);
     return 0;
 }
@@ -748,16 +754,15 @@ int ReadFile(char *path, char *buf)
 //进一步的封装，写入文件内容
 int WriteFile(char *path, char *buf, int bufSz)
 {
-    File_Descriptor fp;
+    FileDescriptor fp;
     if (ReadFp(path, &fp) == -1)
     {
-
         return -1;
     }
 
     WriteData(buf, bufSz, &fp);
 
     //信息发生改变，回写fp
-    cout << "WFP=" << WriteFp(path, &fp) << endl;
+    WriteFp(path, &fp);
     return 0;
 }

@@ -1,0 +1,6 @@
+make --dry-run --keep-going --print-directory
+make: Entering directory '/mnt/c/Users/yhy/Desktop/FAT12-File-System'
+make: Leaving directory '/mnt/c/Users/yhy/Desktop/FAT12-File-System'
+ 
+make: *** No targets specified and no makefile found.  Stop.
+

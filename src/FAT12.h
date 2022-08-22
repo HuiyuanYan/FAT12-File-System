@@ -3,7 +3,9 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
-
+#define bool short int
+#define true 1
+#define false 0
 //规定磁盘信息
 #define SECTOR_SIZE 512
 #define ROOT_DICT_NUM 224
@@ -15,23 +17,16 @@
 #define REGULAR_TYPE 0x20
 #define DIRECTORY_TYPE 0x10
 
-//当前文件路径
-
-#define B2int(num, a, b, c) \
-    num = a << 16 | b << 8 | c
-
-#define int2B(a, b, c, num) \
-    a = num | 0x0F00;       \
-    b = num | 0x00F0;       \
-    c = num | 0x000F
-
+//规定数据类型
 typedef unsigned char uint8_t;
 typedef unsigned short uint16_t;
 typedef unsigned int uint32_t;
 typedef char Sector[512];
-struct MBR_Header;
-struct File_Descriptor;
-typedef struct MBR_Header
+struct MBRHeader;
+struct FileDescriptor;
+
+// MBR首部结构
+typedef struct MBRHeader
 {
     char BS_jmpBOOT[3];
     char BS_OEMName[8];
@@ -76,15 +71,17 @@ typedef struct MBR_Header
     //结束标志
     char end_point[2];
 
-} __attribute__((packed)) MBR_Header;
+} __attribute__((packed)) MBRHeader;
 
-typedef struct FAT_2Entry //由于按字节寻址，所以基本单位是字节，扩展FAT表项成为2个（2*1.5=3字节）
+// FAT项结构，由于计算机是按字节操作空间，所以扩展一个FAT项（1.5字节）为两个
+typedef struct FAT2Entry
 {
     int firstEntry : 12;
     int secondEntry : 12;
-} __attribute__((packed)) FAT_2Entry;
+} __attribute__((packed)) FAT2Entry;
 
-typedef struct File_Descriptor
+//文件描述符定义
+typedef struct FileDescriptor
 {
     uint8_t DIR_Name[8];   //文件名
     uint8_t DIR_Type[3];   //文件类型/扩展名
@@ -94,39 +91,41 @@ typedef struct File_Descriptor
     uint16_t WrtDate;      //最后一次写入日期
     uint16_t DIR_FstClus;  //此条目对应的开始簇数
     uint32_t DIR_FileSize; //文件大小
-} __attribute__((packed)) File_Descriptor;
+} __attribute__((packed)) FileDescriptor;
 
+//磁盘定义
 typedef struct Disk
 {
-    MBR_Header MBR;                               // 1个扇区
-    FAT_2Entry FAT1[CLUS_NUM / 2];                // 9个扇区;
-    FAT_2Entry FAT2[CLUS_NUM / 2];                // 9个扇区
-    File_Descriptor rootDirectory[ROOT_DICT_NUM]; // 14个扇区
-    Sector dataSector[DATA_SECTOR_NUM];           // 2880个扇区
+    MBRHeader MBR;                               // 1个扇区
+    FAT2Entry FAT1[CLUS_NUM / 2];                // 9个扇区;
+    FAT2Entry FAT2[CLUS_NUM / 2];                // 9个扇区
+    FileDescriptor rootDirectory[ROOT_DICT_NUM]; // 14个扇区
+    Sector dataSector[DATA_SECTOR_NUM];          // 2880个扇区
 } __attribute__((packed)) Disk;
 
+//实例化一个磁盘disk
 extern Disk disk;
 
 void InitMBR();
 void InitFAT();
-void MakeDirEntry(File_Descriptor *dirEntry, char dirName[8], char dirType[3], uint8_t dirAttr, uint32_t fileSz);
-void SetTime(File_Descriptor *dirEntry);
+void MakeFp(FileDescriptor *fp, char dirName[8], char dirType[3], uint8_t dirAttr, uint32_t fileSz);
+void SetTime(FileDescriptor *fp);
 int AllocSector(uint32_t sz);
 int CreatRootDict(char *dictName);
-void CreateDotDict(File_Descriptor *dotFp, const File_Descriptor *fp);
-void CreateDDotDict(File_Descriptor *ddotFp, int fatherClus);
+void CreateDotDict(FileDescriptor *dotFp, const FileDescriptor *fp);
+void CreateDDotDict(FileDescriptor *ddotFp, int fatherClus);
 void WriteSector(char *buf, int idx);
 void ReadSector(char *buf, int idx);
-int ReadFp(char *path, File_Descriptor *fp);
-int WriteFp(char *path, File_Descriptor *fp);
-void WriteNewEntry(File_Descriptor *faFp, File_Descriptor *fp, int *newClus);
-void ReadData(File_Descriptor *fp, char *buf);
-void WriteData(char *buf, int bufSz, File_Descriptor *fp);
-int ReadRootDict(char *rootName, File_Descriptor *fp);
-int WriteRootDict(char *rootName, File_Descriptor *fp);
-int MatchDict(char *fileName, char *buf, int bufSz, File_Descriptor *fp);
+int ReadFp(char *path, FileDescriptor *fp);
+int WriteFp(char *path, FileDescriptor *fp);
+void WriteNewEntry(FileDescriptor *faFp, FileDescriptor *fp, int *newClus);
+void ReadData(FileDescriptor *fp, char *buf);
+void WriteData(char *buf, int bufSz, FileDescriptor *fp);
+int ReadRootDict(char *rootName, FileDescriptor *fp);
+int WriteRootDict(char *rootName, FileDescriptor *fp);
+int MatchDict(char *fileName, char *buf, int bufSz, FileDescriptor *fp);
 int CreateFile(char *fatherPath, char fileName[8], char fileType[3], uint8_t fileAttr, uint32_t fileSz);
-void RemoveFp(File_Descriptor *fp);
+void RemoveFp(FileDescriptor *fp);
 int RemoveFile(char *fatherPath, char *fileName);
 
 int ReadFile(char *path, char *buf);
