@@ -509,7 +509,7 @@ void WriteData(char *buf, int bufSz, FileDescriptor *fp)
         clusRecord[idx] = tmpClus;
         tmpClus = (tmpClus % 2 == 0) ? disk.FAT1[tmpClus / 2].firstEntry : disk.FAT1[tmpClus / 2].secondEntry;
 
-    } while (tmpClus & 0xFFF != 0xFFF);
+    } while ((tmpClus & 0xFFF) != 0xFFF);
     int lastClus = clusRecord[clusNum - 1];
     // printf("lastClus = %d\n", lastClus);
 
